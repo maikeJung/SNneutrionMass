@@ -5,10 +5,15 @@ import matplotlib.pyplot as plt #can be removed later
 from scipy.integrate import quad
 from scipy import interpolate
 import random
-import datetime # can be removed later
+import datetime
 from scipy.optimize import minimize_scalar
+import argparse
+import os
 
-
+# t in s
+# m in eV
+# dist in Mpc
+# E in MeV
 
 
 # gaussian (around 0): error for the energy smearing from photon counts: N is proportional to E -> N = 1/alpha*E -> N=alpha*E -> factor of alpha for sigma2 (sigma2=E)
@@ -30,7 +35,6 @@ def getDeltaT(E, mass, dist):
     # time shift due to neutrino mass - factor of 51.4 to get the proper units
     tDelta = dist*51.4635*(float(mass)/float(E))*(float(mass)/float(E))
     return tDelta
-
 
 def getTimeDelay(t, E, mass, dist):
     return t - getDeltaT(E, mass, dist)
@@ -55,7 +59,6 @@ def LLSpectrumTotal(E, t, mass, dist):
 
 # DRAW RANDOM EVENTS FROM REGULAR SPECTRUM, SUBTRACT TIME OF FIRST EVENT AND SMEAR THEM
 def drawEvents(mass, dist, events):
-    # random.seed(datetime.now())
     times = []
     energies = []
     number_of_events = int(events)
@@ -75,52 +78,13 @@ def drawEvents(mass, dist, events):
     energies[:] = [random.gauss(i, np.sqrt(2.22*i)) for i in energies]
     return times, energies
 
-
-# up to this point regular absolut arrival time specturm
-# PLOT - TEST
-'''
-testt, teste = drawEvents(0.5,1.0,500)
-print testt, teste
-myArray = [[LLSpectrumTotal(e,t,0.5,1.0) for t in np.arange(0.0, 10., 0.1)] for e in np.arange(0.1, 60., 0.1)]
-
-X = np.arange(0.0, 10., 0.1)
-Y = np.arange(0.1, 60., 0.1)
-X, Y = np.meshgrid(X, Y)
-Z = myArray
-
-# Surface Plot of the arrival distribution
-fig = plt.figure()
-ax = fig.add_subplot(111)
-plt.gcf().subplots_adjust(bottom=0.15)
-plt.gcf().subplots_adjust(top=0.87)
-surf = ax.contourf(X,Y,Z, 8, cmap=plt.cm.jet)
-ax.set_xlabel('time [s]', fontsize=19)
-ax.set_ylabel('energy [MeV]', fontsize=19)
-plt.plot(testt, teste, 'ro')
-#ax.set_title('m = '+str(M)+' eV - ' + str(events) + ' events - D = '+str(D)+ ' Mpc \n'+str(det_type), fontsize=19)
-ax.xaxis.set_tick_params(labelsize=19, width=2)
-ax.yaxis.set_tick_params(labelsize=19, width=2)
-ax.xaxis.set_minor_formatter(plt.FormatStrFormatter('%d'))
-# defining custom minor tick locations:
-ax.xaxis.set_minor_locator(plt.FixedLocator([50,500,2000]))
-ax.yaxis.set_ticks_position('left')
-ax.xaxis.set_ticks_position('bottom')
-ax.tick_params(axis='both',reset=False,which='both',length=8,width=2)
-cbar = fig.colorbar(surf, shrink=1, aspect=20, fraction=.12,pad=.02)
-cbar.set_label('relative # of events',size=19)
-# access to cbar tick labels:
-cbar.ax.tick_params(labelsize=19)
-#plt.xlim(0.0, 10.0)
-plt.ylim(1, 39)
-plt.show()
-'''
-
 # take into consideration that the absolute arrival times are not known
 
 def ProbFirstHitDist (mass, dist, events):
     # calculate the probability to get the first hit after a certain amount of time 
     # arrival time distribution of all the hits (for a certain mass) - project the E,t spectrum on the t axis
-    # calculate first entry
+
+    # calculate first entry - approximate entry at time 0
     totalArrivalTimeDist = []
     timeArray = [0]
     I, error = quad(LLSpectrumTotal, 0.1, 60.0, args=(0,mass,dist))
@@ -198,22 +162,20 @@ plt.semilogx(times, testTime3, 'go')
 plt.show()
 '''
 
+# energy part
 
 def fillTriggerEff():
-    #Read in trigger efficiency.
-    #Note that the trigger efficiency file for the chosen resolution needs
-    #to be located in the proper directory.*/
+    #Read in trigger efficiency of the detector
     E, triggEff = np.loadtxt("trigger_efficiency_100keV_steps.txt", usecols=(0, 1), unpack=True)
     f = interpolate.interp1d(E, triggEff)
     return f
 
 
 def getEnergySpec(mass, dist,events,t,hitDist):
-    #hitDist = ProbFirstHitDist(mass, dist, events)
+    # interpolate the energy spectrum at the time of interest t
     triggEff = fillTriggerEff()
     energySpectrum = []
     energy = np.arange(0.1,60.0,2.0)
-    # calculate the energy spectrum for a certain time
     for e in energy:
         time = getTimeDelay(t, e, mass, dist)
         pUnsmeared = LL_energy_spectrum(e)*convolveHitDistWithLLTimeSpec(time, mass, dist, events,hitDist)*triggEff(e);
@@ -221,27 +183,30 @@ def getEnergySpec(mass, dist,events,t,hitDist):
     f = interpolate.interp1d(energy, energySpectrum)
     return f
 
-#energytest = getEnergySpec(mass,dist,events,1.0)
+
 def convFunctionEnergy(Evar, E, mass, dist, events, energytest):
+    # function for the energy convolution
     if (E-Evar) >0.1 and (E-Evar)< 58.0:
         return gauss(Evar, E)*energytest(E-Evar)
     return 0.0
 
 
 def applyEnergyRes(E, mass, dist, events,energytest):
-    # evaluate the convolution at the energy of interest
-    #smear the energy spectrum by convolution with a gaussian
+    # evaluate the convolution at the energy of interest (smear the energy spectrum by convolution with a gaussian)
     I, error = quad(convFunctionEnergy, -30.0, 30.0, args=(E, mass, dist, events,energytest))
     return I
 
+# CALCULATE PROBABILITY
 def calcProbability(mass, dist,events,t,E,hitDist):
     # calculate the probability for an event beeing detected at a certain t+E
     energytest = getEnergySpec(mass,dist,events,t,hitDist)
     val = applyEnergyRes(E, mass, dist, events,energytest)
     return val
 
-
+# LLH
 def llh(mass, eventTimes, eventEnergies,dist,events):
+    # calculate the likelihood for the events belonging to a certain mass spectrum 
+    # use the - log LLH - better for numberical evaluation and minimization
     hitDist = ProbFirstHitDist(mass, dist, events)
     llh = 0.0
     for i in range( len(eventTimes) ):
@@ -251,21 +216,39 @@ def llh(mass, eventTimes, eventEnergies,dist,events):
     return llh;
 
 
-print datetime.datetime.now()
+# TODO: add noise
 
-masst = 1.0
-distt = 5.0
-eventst = 10.0
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+		description="Simulate SN Spectrum and fit pseudo-experiments.")
+    parser.add_argument("-M", "--mass", default=1.0, type=float,
+			help="Neutrino mass (in eV)")
+    parser.add_argument("-D", "--distance", default=5.0, type=float,
+			help="SN Distance (in Mpc)")
+    parser.add_argument("-N", "--nevents", default=10.0, type=float,
+			help="Number of expected events from the SN")
+    parser.add_argument("--nfits", default=1, type=int,
+			help="No. of pseudo-experiments to generate and fit.")
+    args = parser.parse_args()
+   
+    mass = args.mass; distance = args.distance; events = args.nevents; nfits = args.nfits
+    
+    # creat folder to stor results
+    if not os.path.exists('DATA_TEST'):
+        os.makedirs('DATA_TEST')
 
+    random.seed(datetime.datetime.now()) # TODO: store to be able to reporduce
+    print datetime.datetime.now()
+    for i in range(nfits):
+        # generate pseudo events
+        eventTimes, eventEnergies = drawEvents(mass,distance,events)
 
-random.seed(12)
-for i in range(5):
-    # generate events
-    eventTimes, eventEnergies = drawEvents(masst,distt,eventst)
+        # minimize the likelihood
+        x_min = minimize_scalar(llh, args=(eventTimes, eventEnergies,distance,events), bounds=(0.0,5.0), method='bounded', options={'disp':1,'xatol':0.005})
+        print i, x_min.nfev, x_min.x
+        with open("DATA_TEST/masses_"+str(distance)+"Mpc_"+str(events)+"Events_"+str(mass)+"eV_test.txt", "a") as myfile:
+            myfile.write(str(float(x_min.x)) + '\n')
 
-    x_min = minimize_scalar(llh, args=(eventTimes, eventEnergies,distt,eventst), bounds=(0.0,5.0), method='bounded', options={'disp':1,'xatol':0.005})
-    print i, x_min.nfev, x_min.x
+    print datetime.datetime.now()
+    print 'DONE'
 
-print datetime.datetime.now()
-
-print 'DONE'
