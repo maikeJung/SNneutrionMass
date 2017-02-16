@@ -1,11 +1,12 @@
 # EVALUATE SPECTRUM ONLY AT THE POINTS NECESSARY
 
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt #can be removed later
 from scipy.integrate import quad
 from scipy import interpolate
 import random
-import datetime
+import datetime # can be removed later
+from scipy.optimize import minimize_scalar
 
 
 
@@ -52,7 +53,7 @@ def LLSpectrumTotal(E, t, mass, dist):
     return LL_time_spectrum_shifted(t, E, mass, dist)*LL_energy_spectrum(E)
 
 
-# DRAW RANDOM EVENTS FROM REGULAR SPECTRUM AND SMEAR THEM
+# DRAW RANDOM EVENTS FROM REGULAR SPECTRUM, SUBTRACT TIME OF FIRST EVENT AND SMEAR THEM
 def drawEvents(mass, dist, events):
     # random.seed(datetime.now())
     times = []
@@ -207,27 +208,22 @@ def fillTriggerEff():
     return f
 
 
-def getEnergySpec(mass, dist,events,t,timeConv):
+def getEnergySpec(mass, dist,events,t,hitDist):
     #hitDist = ProbFirstHitDist(mass, dist, events)
     triggEff = fillTriggerEff()
     energySpectrum = []
-    energy = np.arange(5.0,60.0,1.0)
-    #timeConv = convolveHitDistWithLLTimeSpecTEST(mass, dist, events,hitDist)
+    energy = np.arange(0.1,60.0,2.0)
     # calculate the energy spectrum for a certain time
     for e in energy:
         time = getTimeDelay(t, e, mass, dist)
-        print 'time delay', time, t,e,mass,dist
-        pUnsmeared = LL_energy_spectrum(e)*triggEff(e)*timeConv(time)
-        #pUnsmeared = LL_energy_spectrum(e)*timeConv(time)*triggEff(e);
-        #pUnsmeared = LL_energy_spectrum(e)*convolveHitDistWithLLTimeSpec(time, mass, dist, events,hitDist)*triggEff(e);
+        pUnsmeared = LL_energy_spectrum(e)*convolveHitDistWithLLTimeSpec(time, mass, dist, events,hitDist)*triggEff(e);
         energySpectrum.append(pUnsmeared)
-    #applyEnergyRes(t, distribution, energySpectrum)
     f = interpolate.interp1d(energy, energySpectrum)
     return f
 
 #energytest = getEnergySpec(mass,dist,events,1.0)
 def convFunctionEnergy(Evar, E, mass, dist, events, energytest):
-    if (E-Evar) >0.1 and (E-Evar)< 59.0:
+    if (E-Evar) >0.1 and (E-Evar)< 58.0:
         return gauss(Evar, E)*energytest(E-Evar)
     return 0.0
 
@@ -238,19 +234,18 @@ def applyEnergyRes(E, mass, dist, events,energytest):
     I, error = quad(convFunctionEnergy, -30.0, 30.0, args=(E, mass, dist, events,energytest))
     return I
 
-def calcProbability(mass, dist,events,t,E,timeConv):
+def calcProbability(mass, dist,events,t,E,hitDist):
     # calculate the probability for an event beeing detected at a certain t+E
-    energytest = getEnergySpec(mass,dist,events,t,timeConv)
+    energytest = getEnergySpec(mass,dist,events,t,hitDist)
     val = applyEnergyRes(E, mass, dist, events,energytest)
     return val
 
 
-def llh(eventTimes, eventEnergies,mass,dist,events):
+def llh(mass, eventTimes, eventEnergies,dist,events):
     hitDist = ProbFirstHitDist(mass, dist, events)
-    timeConv = convolveHitDistWithLLTimeSpecTEST(mass, dist, events,hitDist)
     llh = 0.0
     for i in range( len(eventTimes) ):
-        llh += np.log( calcProbability(mass,dist,events,eventTimes[i],eventEnergies[i],timeConv) )
+        llh += np.log( calcProbability(mass,dist,events,eventTimes[i],eventEnergies[i],hitDist) )
 
     llh*=-1;
     return llh;
@@ -259,50 +254,18 @@ def llh(eventTimes, eventEnergies,mass,dist,events):
 print datetime.datetime.now()
 
 masst = 1.0
-distt = 1.0
-eventst = 160.0
+distt = 5.0
+eventst = 10.0
+
 
 random.seed(12)
-for i in range(1):
-    eventTimes, eventEnergies = drawEvents(masst,distt,10)
-    print eventTimes, eventEnergies
-    
-    print 'llh', llh(eventTimes,eventEnergies,1.0,distt,eventst)
-    print 'llh', llh(eventTimes,eventEnergies,1.01,distt,eventst)
-    print 'llh', llh(eventTimes,eventEnergies,1.1,distt,eventst)
+for i in range(5):
+    # generate events
+    eventTimes, eventEnergies = drawEvents(masst,distt,eventst)
+
+    x_min = minimize_scalar(llh, args=(eventTimes, eventEnergies,distt,eventst), bounds=(0.0,5.0), method='bounded', options={'disp':1,'xatol':0.005})
+    print i, x_min.nfev, x_min.x
+
 print datetime.datetime.now()
-# Plot-Spectrum - takes a while
-'''
-time = np.logspace(-2, 1.01, num=30)
-energy = np.arange(0.1,40.0,2.0)
-#myArrayF = [[calcProbability(mass, dist, events, t, e) for t in time] for e in energy]
 
-X, Y = np.meshgrid(time, energy)
-Z = myArrayF
-
-# Surface Plot of the arrival distribution
-fig = plt.figure()
-ax = fig.add_subplot(111)
-plt.gcf().subplots_adjust(bottom=0.15)
-plt.gcf().subplots_adjust(top=0.87)
-surf = ax.contourf(X,Y,Z, 8, cmap=plt.cm.jet)
-ax.set_xlabel('time [s]', fontsize=19)
-ax.set_ylabel('energy [MeV]', fontsize=19)
-#ax.set_title('m = '+str(M)+' eV - ' + str(events) + ' events - D = '+str(D)+ ' Mpc \n'+str(det_type), fontsize=19)
-ax.xaxis.set_tick_params(labelsize=19, width=2)
-ax.yaxis.set_tick_params(labelsize=19, width=2)
-ax.xaxis.set_minor_formatter(plt.FormatStrFormatter('%d'))
-# defining custom minor tick locations:
-ax.xaxis.set_minor_locator(plt.FixedLocator([50,500,2000]))
-ax.yaxis.set_ticks_position('left')
-ax.xaxis.set_ticks_position('bottom')
-ax.tick_params(axis='both',reset=False,which='both',length=8,width=2)
-cbar = fig.colorbar(surf, shrink=1, aspect=20, fraction=.12,pad=.02)
-cbar.set_label('relative # of events',size=19)
-# access to cbar tick labels:
-cbar.ax.tick_params(labelsize=19)
-#plt.xlim(0.0, 10.0)
-plt.ylim(1, 39)
-plt.show()
-'''
 print 'DONE'
