@@ -19,6 +19,7 @@ import os
 # gaussian (around 0): error for the energy smearing from photon counts: N is proportional to E -> N = 1/alpha*E -> N=alpha*E -> factor of alpha for sigma2 (sigma2=E)
 def gauss(i, sigma2):
     alpha = 2.22
+    print i, sigma2
     return 1/np.sqrt(2.0*np.pi*sigma2*alpha)*np.exp(-(i*i)/(2.0*sigma2*alpha))
 
 
@@ -129,7 +130,7 @@ def convolveHitDistWithLLTimeSpec(t, mass, dist, events, hitDist):
 def convolveHitDistWithLLTimeSpecTEST( mass, dist, events, hitDist):
     # perform the convolution of the arrival time probability with the ll-time spectrum for A CERTAIN TIME
     # first enrty
-    timeBins1 = -np.logspace(0.5, -4, num=50)
+    timeBins1 = -np.logspace(0.6, -4, num=50)
     timeBins2 = np.logspace(-4, 1.01, num=300)
     timeBins =  np.concatenate((timeBins1,timeBins2))
     timeArray = []
@@ -173,14 +174,15 @@ def fillTriggerEff():
     return f
 
 
-def getEnergySpec(mass, dist,events,t,hitDist):
-    # interpolate the energy spectrum at the time of interest t
-    triggEff = fillTriggerEff()
+def getEnergySpec(mass, dist,events,t,triggEff,timeSpectrum):
+    
     energySpectrum = []
     energy = np.arange(0.1,60.0,2.0)
     for e in energy:
         time = getTimeDelay(t, e, mass, dist)
-        pUnsmeared = LL_energy_spectrum(e)*convolveHitDistWithLLTimeSpec(time, mass, dist, events,hitDist)*triggEff(e);
+        if time < -3.0: time = -3.0
+        pUnsmeared = LL_energy_spectrum(e)*timeSpectrum(time)*triggEff(e);
+        #pUnsmeared = LL_energy_spectrum(e)*convolveHitDistWithLLTimeSpec(time, mass, dist, events,hitDist)*triggEff(e);
         energySpectrum.append(pUnsmeared)
     f = interpolate.interp1d(energy, energySpectrum)
     return f
@@ -199,9 +201,9 @@ def applyEnergyRes(E, mass, dist, events,energytest):
     return I
 
 # CALCULATE PROBABILITY
-def calcProbability(mass, dist,events,t,E,hitDist):
+def calcProbability(mass, dist,events,t,E,triggEff,timeSpectrum):
     # calculate the probability for an event beeing detected at a certain t+E
-    energytest = getEnergySpec(mass,dist,events,t,hitDist)
+    energytest = getEnergySpec(mass,dist,events,t,triggEff,timeSpectrum)
     val = applyEnergyRes(E, mass, dist, events,energytest)
     return val
 
@@ -210,11 +212,16 @@ def llh(mass, eventTimes, eventEnergies,dist,events):
     # calculate the likelihood for the events belonging to a certain mass spectrum 
     # use the - log LLH - better for numberical evaluation and minimization
     hitDist = ProbFirstHitDist(mass, dist, events)
+    # interpolate the energy spectrum at the time of interest t
+    triggEff = fillTriggerEff()
+    # time spectrum
+    timeSpectrum = convolveHitDistWithLLTimeSpecTEST( mass, dist, events, hitDist)
     llh = 0.0
     for i in range( len(eventTimes) ):
-        llh += np.log( calcProbability(mass,dist,events,eventTimes[i],eventEnergies[i],hitDist) )
-
+        llh += np.log( calcProbability(mass,dist,events,eventTimes[i],eventEnergies[i],triggEff,timeSpectrum) )
+    
     llh*=-1;
+    print mass, llh
     return llh;
 
 
@@ -239,7 +246,7 @@ if __name__ == "__main__":
     if not os.path.exists('DATA_TEST'):
         os.makedirs('DATA_TEST')
 
-    random.seed(datetime.datetime.now()) # TODO: store to be able to reporduce
+    random.seed(datetime.datetime.now()) # TODO: store to be able to reporduce results
     print datetime.datetime.now()
     for i in range(nfits):
         # generate pseudo events
