@@ -59,6 +59,8 @@ def LLSpectrumTotal(E, t, mass, dist):
 
 # DRAW RANDOM EVENTS FROM REGULAR SPECTRUM, SUBTRACT TIME OF FIRST EVENT AND SMEAR THEM
 def drawEvents(mass, dist, events):
+    # consider trigger eff
+    triggEff = fillTriggerEff()
     times = []
     energies = []
     number_of_events = int(events)
@@ -66,8 +68,8 @@ def drawEvents(mass, dist, events):
     while events_generated < number_of_events:
 	    time_r = random.uniform(0.0,10.0)
 	    energy_r = random.uniform(0.0,60.0)
-	    rand = random.uniform(0.0,0.3)
-	    if LLSpectrumTotal(energy_r, time_r, mass, dist) > rand:
+	    rand = random.uniform(0.0,0.2)
+	    if LLSpectrumTotal(energy_r, time_r, mass, dist)*triggEff(energy_r) > rand:
 		    events_generated += 1
 		    times.append(time_r)
 		    energies.append(energy_r)
